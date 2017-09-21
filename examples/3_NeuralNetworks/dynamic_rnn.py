@@ -1,13 +1,18 @@
-'''
-A Dynamic Reccurent Neural Network (LSTM) implementation example using
-TensorFlow library. This example is using a toy dataset to classify linear
-sequences. The generated sequences have variable length.
+""" Dynamic Recurrent Neural Network.
 
-Long Short Term Memory paper: http://deeplearning.cs.cmu.edu/pdfs/Hochreiter97_lstm.pdf
+TensorFlow implementation of a Recurrent Neural Network (LSTM) that performs
+dynamic computation over sequences with variable length. This example is using
+a toy dataset to classify linear sequences. The generated sequences have
+variable length.
+
+Links:
+    [Long Short Term Memory](http://deeplearning.cs.cmu.edu/pdfs/Hochreiter97_lstm.pdf)
 
 Author: Aymeric Damien
 Project: https://github.com/aymericdamien/TensorFlow-Examples/
-'''
+"""
+
+from __future__ import print_function
 
 import tensorflow as tf
 import random
@@ -24,7 +29,7 @@ class ToySequenceData(object):
 
     NOTICE:
     We have to pad each sequence to reach 'max_seq_len' for TensorFlow
-    consistency (we cannot feed a numpy array with unconsistent
+    consistency (we cannot feed a numpy array with inconsistent
     dimensions). The dynamic calculation will then be perform thanks to
     'seqlen' attribute that records every actual sequence length.
     """
@@ -79,9 +84,9 @@ class ToySequenceData(object):
 
 # Parameters
 learning_rate = 0.01
-training_iters = 1000000
+training_steps = 10000
 batch_size = 128
-display_step = 10
+display_step = 200
 
 # Network Parameters
 seq_max_len = 20 # Sequence max length
@@ -111,24 +116,20 @@ def dynamicRNN(x, seqlen, weights, biases):
     # Prepare data shape to match `rnn` function requirements
     # Current data input shape: (batch_size, n_steps, n_input)
     # Required shape: 'n_steps' tensors list of shape (batch_size, n_input)
-
-    # Permuting batch_size and n_steps
-    x = tf.transpose(x, [1, 0, 2])
-    # Reshaping to (n_steps*batch_size, n_input)
-    x = tf.reshape(x, [-1, 1])
-    # Split to get a list of 'n_steps' tensors of shape (batch_size, n_input)
-    x = tf.split(0, seq_max_len, x)
+    
+    # Unstack to get a list of 'n_steps' tensors of shape (batch_size, n_input)
+    x = tf.unstack(x, seq_max_len, 1)
 
     # Define a lstm cell with tensorflow
-    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden)
+    lstm_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden)
 
     # Get lstm cell output, providing 'sequence_length' will perform dynamic
     # calculation.
-    outputs, states = tf.nn.rnn(lstm_cell, x, dtype=tf.float32,
+    outputs, states = tf.contrib.rnn.static_rnn(lstm_cell, x, dtype=tf.float32,
                                 sequence_length=seqlen)
 
     # When performing dynamic calculation, we must retrieve the last
-    # dynamically computed output, i.e, if a sequence length is 10, we need
+    # dynamically computed output, i.e., if a sequence length is 10, we need
     # to retrieve the 10th output.
     # However TensorFlow doesn't support advanced indexing yet, so we build
     # a custom op that for each sample in batch size, get its length and
@@ -136,7 +137,7 @@ def dynamicRNN(x, seqlen, weights, biases):
 
     # 'outputs' is a list of output at every timestep, we pack them in a Tensor
     # and change back dimension to [batch_size, n_step, n_input]
-    outputs = tf.pack(outputs)
+    outputs = tf.stack(outputs)
     outputs = tf.transpose(outputs, [1, 0, 2])
 
     # Hack to build the indexing and retrieve the right output.
@@ -152,43 +153,44 @@ def dynamicRNN(x, seqlen, weights, biases):
 pred = dynamicRNN(x, seqlen, weights, biases)
 
 # Define loss and optimizer
-cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(pred, y))
+cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=y))
 optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(cost)
 
 # Evaluate model
 correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
 accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
-# Initializing the variables
-init = tf.initialize_all_variables()
+# Initialize the variables (i.e. assign their default value)
+init = tf.global_variables_initializer()
 
-# Launch the graph
+# Start training
 with tf.Session() as sess:
+
+    # Run the initializer
     sess.run(init)
-    step = 1
-    # Keep training until reach max iterations
-    while step * batch_size < training_iters:
+
+    for step in range(1, training_steps + 1):
         batch_x, batch_y, batch_seqlen = trainset.next(batch_size)
         # Run optimization op (backprop)
         sess.run(optimizer, feed_dict={x: batch_x, y: batch_y,
                                        seqlen: batch_seqlen})
-        if step % display_step == 0:
+        if step % display_step == 0 or step == 1:
             # Calculate batch accuracy
             acc = sess.run(accuracy, feed_dict={x: batch_x, y: batch_y,
                                                 seqlen: batch_seqlen})
             # Calculate batch loss
             loss = sess.run(cost, feed_dict={x: batch_x, y: batch_y,
                                              seqlen: batch_seqlen})
-            print "Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
+            print("Step " + str(step*batch_size) + ", Minibatch Loss= " + \
                   "{:.6f}".format(loss) + ", Training Accuracy= " + \
-                  "{:.5f}".format(acc)
-        step += 1
-    print "Optimization Finished!"
+                  "{:.5f}".format(acc))
+
+    print("Optimization Finished!")
 
     # Calculate accuracy
     test_data = testset.data
     test_label = testset.labels
     test_seqlen = testset.seqlen
-    print "Testing Accuracy:", \
+    print("Testing Accuracy:", \
         sess.run(accuracy, feed_dict={x: test_data, y: test_label,
-                                      seqlen: test_seqlen})
+                                      seqlen: test_seqlen}))
